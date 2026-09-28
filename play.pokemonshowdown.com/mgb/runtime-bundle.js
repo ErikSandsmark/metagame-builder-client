@@ -31,8 +31,9 @@
 	var formatKey = ''; // format id without the genN prefix, as DexSearch stores it
 
 	function genChar(gen) {
-		// The teambuilder learnset check uses 'a' for gen 9 outside natdex.
-		return gen === 9 ? 'a' : String(gen);
+		// The teambuilder lists a move only if its learnset entry has the generation digit; for Gen 9
+		// outside natdex its legality check also wants the 'a' marker. So Gen 9 entries are '9a'.
+		return gen === 9 ? '9a' : String(gen);
 	}
 
 	function insertSearchIndex(id, type) {
@@ -101,6 +102,17 @@
 			insertSearchIndex(id, 'move');
 		});
 		rules = bundle.rules || { teamSize: { min: 1, max: 6 }, level: 100, speciesClause: true };
+		// Moves the frame generation dropped ("Past", e.g. Pursuit in Gen 9) exist in this metagame when
+		// the creator gave them to a species (the compiler enables them on the server); show them too.
+		Object.keys(bundle.learnsets).forEach(function (sid) {
+			bundle.learnsets[sid].forEach(function (m) {
+				var entry = window.BattleMovedex[m];
+				if (entry && entry.isNonstandard === 'Past') {
+					entry.isNonstandard = null;
+					for (var mod in Dex.moddedDexes) delete Dex.moddedDexes[mod].cache.Moves[m];
+				}
+			});
+		});
 		if (window.MGB_TEXT) {
 			window.MGB_TEXT.setTitle(bundle.title);
 			window.MGB_TEXT.add(display);
