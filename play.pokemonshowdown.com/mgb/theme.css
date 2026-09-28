@@ -1,0 +1,22 @@
+/* MGB play page theme (decision 0030): our own neutral backgrounds instead of upstream artwork (I3). */
+body {
+	background: #26344a url(assets/client-bg.jpg) no-repeat center center fixed;
+	background-size: cover;
+}
+.bgcredit { display: none; }
+/* Features that need the upstream login server or official artwork are not offered in the beta. */
+.trainersprite, .avatar-picker { background-image: url(assets/trainer.png) !important; background-size: contain !important; background-position: center !important; }
+/* Ladder and tournaments are post-beta; friends and the upstream info pages need the upstream sites. */
+a.mainmenu[href="ladder"], a.mainmenu[href="view-tournaments-all"], a.mainmenu[href="view-friends-all"], a.mainmenu[href="resources"],
+.construction, .sample-sets, .mainmenufooter small, .mainmenu-footer small, button[name="register"], button[name="changepassword"] { display: none !important; }
+/* Equal information tags under each active creature (decision 0033). */
+.statbar .mgb-info { margin-top: 19px; /* below the status and boost badges */ font-size: 9px; line-height: 14px; color: #222; background: rgba(255, 255, 255, .82);
+	border-radius: 4px; padding: 1px 3px; white-space: normal; max-width: 170px; }
+.statbar .mgb-info img { vertical-align: middle; margin-right: 2px; }
+.statbar .mgb-info span { font-weight: bold; border: 0; background: none; color: #222; padding: 0; margin: 0; }
+/* EVs: the stats box opens the EV editor; make that obvious (tester feedback). */
+.set-stats button[name="stats"] { outline: 2px solid #5b8def; outline-offset: -2px; border-radius: 4px; cursor: pointer; position: relative; }
+.set-stats button[name="stats"]::after { content: "Edit EVs"; position: absolute; right: 3px; bottom: 2px; font-size: 9px; font-weight: bold;
+	color: #fff; background: #5b8def; border-radius: 3px; padding: 0 3px; }
+/* External sites and upstream services that aren't available here. */
+a[href*="smogon.com"], button[data-cmd="/savereplay"], button.exportbutton:has(> i.fa-upload) { display: none !important; }
