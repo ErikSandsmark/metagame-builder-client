@@ -120,6 +120,7 @@
 		var newsTitle = document.getElementById('mgb-news-title');
 		if (newsTitle) newsTitle.textContent = bundle.title;
 		bundleFormatId = bundle.formatId;
+		migrateTeams();
 		refilterFormats();
 		if (window.PS) PS.update();
 
@@ -234,6 +235,24 @@
 				(window.BattleFormats && !BattleFormats[toID(this.format.split('@@@')[0])]))) this.format = bundleFormatId;
 			return origRender.apply(this, arguments);
 		};
+	}
+
+	// A team made for an older version (or the sandbox) of this metagame follows it to the version
+	// shown on this page; otherwise it would be validated against the old rules (e.g. a move the
+	// creator added later would be "illegal").
+	function migrateTeams() {
+		if (!window.MGB_PLAY || !window.PS || !PS.teams) return;
+		var m = /^(gen\dmgb[0-9a-f]{12})(v\d+|sandbox)$/.exec(bundleFormatId);
+		if (!m) return;
+		var moved = 0;
+		PS.teams.list.forEach(function (team) {
+			var f = /^(gen\dmgb[0-9a-f]{12})(v\d+|sandbox)$/.exec(team.format || '');
+			if (f && f[1] === m[1] && team.format !== bundleFormatId) { team.format = bundleFormatId; moved++; }
+		});
+		if (moved) {
+			PS.teams.save();
+			console.log('[MGB] moved ' + moved + ' team(s) to ' + bundleFormatId);
+		}
 	}
 
 	// Teams go to the server with engine names; nicknames default to the display name (decision 0035).
