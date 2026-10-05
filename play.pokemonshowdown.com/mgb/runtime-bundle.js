@@ -87,6 +87,11 @@
 			};
 			insertSearchIndex(id, 'pokemon');
 		});
+		// Library moves this metagame actually uses (in any learnset); custom moves are keyed separately.
+		var usedLibrary = {};
+		Object.keys(bundle.learnsets).forEach(function (sid) {
+			bundle.learnsets[sid].forEach(function (m) { if (!(bundle.moves || {})[m]) usedLibrary[m] = true; });
+		});
 		Object.keys(bundle.moves || {}).forEach(function (id) {
 			var mv = bundle.moves[id];
 			var engine = mv.name;
@@ -95,8 +100,13 @@
 			delete entry.displayName;
 			window.BattleMovedex[id] = entry;
 			for (var mod in Dex.moddedDexes) delete Dex.moddedDexes[mod].cache.Moves[id];
-			// The compiler guarantees display names don't repeat a library move's name.
-			if (toID(shown) !== id && !window.BattleMovedex[toID(shown)]) window.BattleAliases[toID(shown)] = engine;
+			// A custom move's name means the custom move on this page, even when an official move has the
+			// same name (e.g. a custom "Bullet Punch" in Gen 3, where the official one is Gen 4). The
+			// compiler refuses the ambiguous case: a custom name equal to an official move the metagame uses.
+			if (toID(shown) !== id && !usedLibrary[toID(shown)]) {
+				window.BattleAliases[toID(shown)] = engine;
+				for (var mod2 in Dex.moddedDexes) delete Dex.moddedDexes[mod2].cache.Moves[toID(shown)];
+			}
 			engineMoves[id] = engine;
 			display[engine] = shown;
 			insertSearchIndex(id, 'move');
@@ -326,10 +336,70 @@
 		};
 	}
 
+	// Version watch (published pages only): never keep players on an older version. A team made
+	// there would be checked against the old rules (e.g. a move added in the new version "does not
+	// exist"). While a newer version loads on the battle server, say so; once it is live, switch
+	// (reload, which also moves teams over) unless a battle is in progress.
+	var banner = null;
+	function showBanner(html) {
+		if (!banner) {
+			banner = document.createElement('div');
+			banner.style.cssText = 'position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:10000;background:#1e3a8a;color:#fff;' +
+				'padding:6px 12px;border-radius:6px;font:13px/1.4 sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:90%';
+			document.body.appendChild(banner);
+		}
+		banner.innerHTML = html;
+	}
+	function inBattle() {
+		return window.PS && Object.keys(PS.rooms).some(function (id) {
+			var room = PS.rooms[id];
+			return id.indexOf('battle-') === 0 && room.battle && !room.battle.ended && room.side;
+		});
+	}
+	function watchVersions(bundle) {
+		if (!window.MGB_PLAY || MGB_PLAY.sandbox || !MGB_PLAY.slug) return;
+		var current = bundle.version;
+		var check = function () {
+			fetch('/api/play/' + MGB_PLAY.slug + '/status', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (st) {
+				if (!st) return schedule(60000);
+				if (st.live && st.live > current) {
+					if (inBattle()) {
+						showBanner(BattleLog.escapeHTML(bundle.title) + ' was updated to version ' + st.live + '. <button class="button" onclick="location.reload()">Reload</button> after your battle to use it.');
+						return schedule(30000);
+					}
+					// Guard against a reload loop if the page keeps getting the old version.
+					var key = 'mgb-switch-' + MGB_PLAY.slug + '-' + st.live, tries = 0;
+					try { tries = Number(sessionStorage.getItem(key) || 0); sessionStorage.setItem(key, String(tries + 1)); } catch (e) {}
+					if (tries >= 2) {
+						showBanner('Version ' + st.live + ' is out. <button class="button" onclick="location.reload()">Reload</button> to use it.');
+						return schedule(60000);
+					}
+					showBanner('Switching to version ' + st.live + ' of ' + BattleLog.escapeHTML(bundle.title) + '…');
+					setTimeout(function () { location.reload(); }, 1200);
+					return;
+				}
+				if (st.loading && st.latest > current) {
+					showBanner('Version ' + st.latest + ' of ' + BattleLog.escapeHTML(bundle.title) + ' is loading on the battle server. This page switches to it automatically; wait a moment before making teams.');
+					return schedule(3000);
+				}
+				if (st.error && st.latest > current) {
+					showBanner('Version ' + st.latest + ' could not be loaded on the battle server. You are playing version ' + current + '.');
+				}
+				schedule(60000);
+			}).catch(function () { schedule(60000); });
+		};
+		var schedule = function (ms) { setTimeout(check, ms); };
+		check();
+	}
+
 	window.MGB_READY = fetch(bundleUrl).then(function (r) {
 		if (!r.ok) throw new Error('bundle HTTP ' + r.status);
 		return r.json();
-	}).then(function (b) { window.MGB_BUNDLE_TITLE = b.title; window.MGB_BUNDLE = b; return b; }).then(apply).catch(function (e) {
+	}).then(function (b) { window.MGB_BUNDLE_TITLE = b.title; window.MGB_BUNDLE = b; return b; }).then(function (b) {
+		apply(b);
+		watchVersions(b);
+		return b;
+	}).catch(function (e) {
 		console.error('[MGB] bundle failed to load', e);
 	});
 })();
