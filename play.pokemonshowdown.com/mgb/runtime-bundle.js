@@ -131,8 +131,14 @@
 		if (newsTitle) newsTitle.textContent = bundle.title;
 		bundleFormatId = bundle.formatId;
 		migrateTeams();
+		// The team list may already have been drawn (e.g. the page opened on #teambuilder) before this
+		// bundle arrived; its cached icons are blanks for our species, so redraw them now.
+		if (window.PS && PS.teams) PS.teams.list.forEach(function (team) { team.iconCache = null; });
 		refilterFormats();
-		if (window.PS) PS.update();
+		if (window.PS) {
+			PS.update();
+			for (var rid in PS.rooms) if (rid === 'teambuilder' || rid.indexOf('team-') === 0) PS.rooms[rid].update(null);
+		}
 
 		var rows = [['header', bundle.title]].concat(Object.keys(bundle.species).map(function (id) {
 			return ['pokemon', id];
