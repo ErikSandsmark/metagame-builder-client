@@ -126,6 +126,7 @@
 		if (news) news.querySelector('.readable-bg').innerHTML = '<div class="newsentry"><h4>Sandbox: your draft vs the bot</h4>' +
 			'<p>1. Open <strong>Teambuilder</strong> and make a team.</p><p>2. The bot challenges you: pick your team and press <strong>Accept</strong>. ' +
 			'After each battle it challenges you again.</p><p>The bot picks random moves. Nothing here is published.</p></div>';
+		if (window.MGB_HOUSE_RULES) MGB_HOUSE_RULES();
 		// Wait until the owner has their own name (signed in), then bring the bot online.
 		var wait = setInterval(function () {
 			if (!PS.user.named) return;

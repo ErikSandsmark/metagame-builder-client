@@ -129,6 +129,7 @@
 		}
 		var newsTitle = document.getElementById('mgb-news-title');
 		if (newsTitle) newsTitle.textContent = bundle.title;
+		showHouseRules(bundle);
 		bundleFormatId = bundle.formatId;
 		migrateTeams();
 		// The team list may already have been drawn (e.g. the page opened on #teambuilder) before this
@@ -155,6 +156,27 @@
 		};
 
 		console.log('[MGB] bundle applied: ' + bundle.formatId + ', ' + Object.keys(bundle.species).length + ' species');
+	}
+
+	// Status rules (decision 0042) are shown to players: changed mechanics must never be a surprise.
+	window.MGB_HOUSE_RULES = function () { if (window.MGB_BUNDLE) showHouseRules(window.MGB_BUNDLE); };
+	function showHouseRules(bundle) {
+		var c = (bundle.mechanics && bundle.mechanics.conditions) || {};
+		var names = { par: 'Paralysis', brn: 'Burn', slp: 'Sleep', frz: 'Freeze', psn: 'Poison', tox: 'Bad poison', confusion: 'Confusion', flinch: 'Flinch' };
+		var lines = [];
+		Object.keys(c).forEach(function (id) {
+			var r = c[id];
+			if (r.enabled === false) { lines.push(names[id] + ' is turned off.'); return; }
+			if (id === 'par' && r.fullParalysis === false) lines.push('Paralysis never fully paralyses.');
+			if (id === 'par' && r.speedDrop === false) lines.push('Paralysis doesn\'t lower Speed.');
+			if (id === 'brn' && r.residual === false) lines.push('Burn deals no damage at the end of the turn.');
+		});
+		var news = document.querySelector('#room-news .newsentry');
+		if (!lines.length || !news || news.querySelector('.mgb-house-rules')) return;
+		var box = document.createElement('div');
+		box.className = 'mgb-house-rules';
+		box.innerHTML = '<p><strong>House rules</strong></p><ul>' + lines.map(function (l) { return '<li>' + BattleLog.escapeHTML(l) + '</li>'; }).join('') + '</ul>';
+		news.appendChild(box);
 	}
 
 	function speciesId(pokemon) {
