@@ -361,6 +361,7 @@
 		});
 		return Teams.pack(sets);
 	}
+	window.MGB_ENGINE_TEAM = toEngineTeam; // the sandbox bot sends teams on its own connection
 	if (window.PS && PS.send) {
 		var origSend = PS.send;
 		PS.send = function (msg) {

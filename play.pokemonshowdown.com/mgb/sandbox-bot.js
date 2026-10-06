@@ -4,8 +4,9 @@
  * A second connection from the owner's own browser, signed in as the owner's personal bot
  * ("MGB Bot xxxxxx", asserted by our web app for signed-in users only). The main menu's Battle
  * button becomes "Battle the bot": it challenges the bot with the selected team, and the bot accepts
- * with a random team from the metagame and picks random legal choices. Nothing runs on the server
- * beyond a normal user connection.
+ * with the team chosen under "Bot's team" (a random team from the metagame, the player's own team, or
+ * one of the player's saved teams) and picks random legal choices. Nothing runs on the server beyond a
+ * normal user connection.
  */
 (function () {
 	'use strict';
@@ -16,6 +17,28 @@
 	var avoid = { doubleteam: 1, minimize: 1, fissure: 1, guillotine: 1, horndrill: 1, sheercold: 1 };
 	var avoidSpecies = {}, avoidAbility = {};
 	var accepting = 0; // retries left while accepting the owner's challenge
+	var lastOwnerTeam = ''; // the team the owner challenged with ("Same as mine")
+	var STORE = 'mgb-sandbox-botteam';
+	var choice = 'random'; // 'random' | 'mirror' | 'team:<name>'
+	try { choice = localStorage.getItem(STORE) || 'random'; } catch (e) {}
+
+	function ownTeams() {
+		return ((PS.teams && PS.teams.list) || []).filter(function (t) { return t.format === formatId && !t.isBox && t.packedTeam; });
+	}
+	/** The bot's team for the next battle, or '' for a random one. Fixed teams use engine names like the owner's. */
+	function chosenTeam() {
+		var engine = window.MGB_ENGINE_TEAM || function (x) { return x; };
+		if (choice === 'mirror') return lastOwnerTeam ? engine(lastOwnerTeam) : '';
+		if (choice.indexOf('team:') === 0) {
+			var name = choice.slice(5);
+			var t = ownTeams().filter(function (x) { return x.name === name; })[0];
+			return t ? engine(t.packedTeam) : '';
+		}
+		return '';
+	}
+	function choiceLabel() {
+		return choice === 'mirror' ? 'the same team as yours' : choice.indexOf('team:') === 0 ? '“' + choice.slice(5) + '”' : 'a random team';
+	}
 	var server = Config.defaultserver;
 	var url = (server.httpport ? 'wss' : 'ws') + '://' + server.host + ':' + server.port + '/showdown/websocket';
 
@@ -52,23 +75,59 @@
 		menu.startSearch = function (format, team, parentElem) {
 			if (!botReady) { PS.alert('The bot is still connecting. Try again in a few seconds.', { parentElem: parentElem }); return; }
 			if (!team || !team.packedTeam) { PS.alert('Pick a team first (make one in the Teambuilder).', { parentElem: parentElem }); return; }
+			lastOwnerTeam = team.packedTeam;
 			PS.send('/utm ' + team.packedTeam);
 			PS.send('/challenge ' + botName + ', ' + format);
 		};
-		// Relabel the button (rendered by the client, so re-applied whenever the menu redraws).
+		// Relabel the button and add the "Bot's team" picker (the client re-renders the menu, so both
+		// are re-applied whenever it redraws).
 		var relabel = function () {
 			var b = document.querySelector('button.mainmenu1');
-			if (!b || b.disabled || b.getAttribute('data-mgb') === 'bot') return;
-			b.setAttribute('data-mgb', 'bot');
-			b.innerHTML = '<strong>Battle the bot</strong><br /><small>Your team vs random moves</small>';
+			if (!b || b.disabled) return;
+			if (b.getAttribute('data-mgb') !== 'bot') {
+				b.setAttribute('data-mgb', 'bot');
+				b.innerHTML = '<strong>Battle the bot</strong><br /><small>Your team vs random moves</small>';
+			}
+			var form = b.closest('form');
+			if (form && !document.getElementById('mgb-botteam')) form.appendChild(botTeamPicker());
 		};
 		new MutationObserver(relabel).observe(document.body, { childList: true, subtree: true });
 		relabel();
 	}
 
+	/** "Bot's team": Random / Same as mine / each saved team for this metagame. */
+	function botTeamPicker() {
+		var wrap = document.createElement('p');
+		wrap.id = 'mgb-botteam';
+		wrap.style.cssText = 'margin:8px 0 0;text-align:center;font-size:9pt';
+		wrap.innerHTML = '<label title="The team the bot battles with">Bot\'s team: <select class="button" style="max-width:140px"></select></label>';
+		var select = wrap.querySelector('select');
+		var fill = function () {
+			var opts = [['random', 'Random'], ['mirror', 'Same as mine']]
+				.concat(ownTeams().map(function (t) { return ['team:' + t.name, t.name]; }));
+			if (!opts.some(function (o) { return o[0] === choice; })) choice = 'random';
+			select.innerHTML = '';
+			opts.forEach(function (o) {
+				var el = document.createElement('option');
+				el.value = o[0]; el.textContent = o[1]; el.selected = o[0] === choice;
+				select.appendChild(el);
+			});
+		};
+		fill();
+		select.addEventListener('mousedown', fill); // teams may have changed in the Teambuilder
+		select.addEventListener('focus', fill);
+		select.addEventListener('change', function () {
+			choice = select.value;
+			try { localStorage.setItem(STORE, choice); } catch (e) {}
+		});
+		return wrap;
+	}
+
 	function acceptWithNewTeam() {
-		send('', '/utm ' + randomTeam());
+		var fixed = chosenTeam();
+		send('', '/utm ' + (fixed || randomTeam()));
 		send('', '/accept ' + owner);
+		if (fixed) accepting = 1; // a fixed team won't change on retry: one try, then explain
 	}
 
 	/** Server rejection lines look like "Tidecat-Wda's move Double Team is banned by Evasion Moves Clause." */
@@ -135,10 +194,16 @@
 			// Our team was rejected while accepting: leave out what was banned and try again.
 			if (accepting && /rejected|banned|can't learn|not allowed|illegal/i.test(text)) {
 				learnFromRejection(text);
-				if (--accepting > 0) acceptWithNewTeam();
+				var fixedTeam = choice !== 'random';
+				if (!fixedTeam && --accepting > 0) acceptWithNewTeam();
 				else {
+					accepting = 0;
 					send('', '/reject ' + owner);
-					send('', '/pm ' + owner + ', Sorry, I could not build a legal team for this metagame: ' + text.replace(/\|+/g, ' ').slice(0, 250));
+					// The bot runs in the owner's page, so tell them right there.
+					var reasons = text.split('|').filter(function (l) { return /^- /.test(l); }).join('\n');
+					PS.alert((fixedTeam
+						? 'The bot can\'t battle with ' + choiceLabel() + '. Pick another team, or Random, under "Bot\'s team".'
+						: 'The bot couldn\'t build a legal random team for this metagame.') + '\n\n' + reasons);
 				}
 			}
 			break;
@@ -171,7 +236,8 @@
 		var news = document.getElementById('room-news');
 		if (news) news.querySelector('.readable-bg').innerHTML = '<div class="newsentry"><h4>Sandbox: your draft vs the bot</h4>' +
 			'<p>1. Open <strong>Teambuilder</strong> and make a team.</p><p>2. Back here, pick the team and press <strong>Battle the bot</strong>. ' +
-			'Press it again for another battle.</p><p>The bot picks random moves. Nothing here is published.</p></div>';
+			'Press it again for another battle.</p><p>Under <strong>Bot\'s team</strong>, choose what the bot plays: a random team, the same team as yours, or one of your saved teams (good for testing how a creature holds up).</p>' +
+			'<p>The bot picks random moves. Nothing here is published.</p></div>';
 		if (window.MGB_HOUSE_RULES) MGB_HOUSE_RULES();
 		// Wait until the owner has their own name (signed in), then bring the bot online.
 		var wait = setInterval(function () {
