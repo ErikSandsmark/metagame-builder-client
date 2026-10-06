@@ -2,15 +2,16 @@
  * MGB sandbox bot (decision 0034). Only on the sandbox page (/m/<slug>/play?sandbox=1).
  *
  * A second connection from the owner's own browser, signed in as the owner's personal bot
- * ("MGB Bot xxxxxx", asserted by our web app for signed-in users only). It builds a random team
- * from the metagame, challenges the owner, accepts the owner's challenges, and picks random legal
- * choices. Nothing runs on the server beyond a normal user connection.
+ * ("MGB Bot xxxxxx", asserted by our web app for signed-in users only). The main menu's Battle
+ * button becomes "Battle the bot": it challenges the bot with the selected team, and the bot accepts
+ * with a random team from the metagame and picks random legal choices. Nothing runs on the server
+ * beyond a normal user connection.
  */
 (function () {
 	'use strict';
 	if (!window.MGB_PLAY || !MGB_PLAY.sandbox || !window.MGB_READY) return;
 
-	var bundle, formatId, ws, botName = '', owner = '', challenged = false;
+	var bundle, formatId, ws, botName = '', owner = '', botReady = false;
 	var server = Config.defaultserver;
 	var url = (server.httpport ? 'wss' : 'ws') + '://' + server.host + ':' + server.port + '/showdown/websocket';
 
@@ -41,14 +42,24 @@
 		}));
 	}
 
-	function challengeOwner(delay) {
-		if (challenged || !owner) return;
-		challenged = true;
-		setTimeout(function () {
-			send('', '/utm ' + randomTeam());
-			send('', '/challenge ' + owner + ', ' + formatId);
-			log('challenged ' + owner);
-		}, delay || 0);
+	/** The main menu's Battle button challenges the bot instead of searching for an opponent. */
+	function takeOverBattleButton() {
+		var menu = PS.mainmenu;
+		menu.startSearch = function (format, team, parentElem) {
+			if (!botReady) { PS.alert('The bot is still connecting. Try again in a few seconds.', { parentElem: parentElem }); return; }
+			if (!team || !team.packedTeam) { PS.alert('Pick a team first (make one in the Teambuilder).', { parentElem: parentElem }); return; }
+			PS.send('/utm ' + team.packedTeam);
+			PS.send('/challenge ' + botName + ', ' + format);
+		};
+		// Relabel the button (rendered by the client, so re-applied whenever the menu redraws).
+		var relabel = function () {
+			var b = document.querySelector('button.mainmenu1');
+			if (!b || b.disabled || b.getAttribute('data-mgb') === 'bot') return;
+			b.setAttribute('data-mgb', 'bot');
+			b.innerHTML = '<strong>Battle the bot</strong><br /><small>Your team vs random moves</small>';
+		};
+		new MutationObserver(relabel).observe(document.body, { childList: true, subtree: true });
+		relabel();
 	}
 
 	function choose(room, req) {
@@ -83,7 +94,7 @@
 			if (parts[3] === '1' && toID(parts[2]) === toID(botName)) {
 				log('signed in as ' + botName);
 				send('', '/utm ' + randomTeam());
-				challengeOwner(1500);
+				botReady = true;
 			}
 			break;
 		case 'pm':
@@ -95,15 +106,12 @@
 			break;
 		case 'popup':
 			log('server: ' + parts.slice(2).join('|'));
-			if (/less than 10 seconds/.test(line)) { challenged = false; challengeOwner(11000); }
 			break;
 		case 'request':
 			if (parts[2]) choose(room, JSON.parse(parts.slice(2).join('|')));
 			break;
 		case 'win': case 'tie':
 			send(room, '/leave');
-			challenged = false;
-			challengeOwner(11000); // the server's challenge guard is 10 s
 			break;
 		}
 	}
@@ -124,14 +132,15 @@
 		formatId = bundle.formatId;
 		var news = document.getElementById('room-news');
 		if (news) news.querySelector('.readable-bg').innerHTML = '<div class="newsentry"><h4>Sandbox: your draft vs the bot</h4>' +
-			'<p>1. Open <strong>Teambuilder</strong> and make a team.</p><p>2. The bot challenges you: pick your team and press <strong>Accept</strong>. ' +
-			'After each battle it challenges you again.</p><p>The bot picks random moves. Nothing here is published.</p></div>';
+			'<p>1. Open <strong>Teambuilder</strong> and make a team.</p><p>2. Back here, pick the team and press <strong>Battle the bot</strong>. ' +
+			'Press it again for another battle.</p><p>The bot picks random moves. Nothing here is published.</p></div>';
 		if (window.MGB_HOUSE_RULES) MGB_HOUSE_RULES();
 		// Wait until the owner has their own name (signed in), then bring the bot online.
 		var wait = setInterval(function () {
 			if (!PS.user.named) return;
 			clearInterval(wait);
 			owner = PS.user.name;
+			takeOverBattleButton();
 			connect();
 		}, 500);
 	});
