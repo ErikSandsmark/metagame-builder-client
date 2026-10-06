@@ -53,6 +53,26 @@
 		}
 	}
 
+	// Items (decision 0045): the teambuilder offers the frame generation's item list; items removed from
+	// the metagame leave it, and items added from other generations come first. Items outside the list
+	// show as illegal, matching the server (removed items are banned, added ones enabled in the mod).
+	function applyItems(bundle) {
+		var it = bundle.items;
+		var tables = window.BattleTeambuilderTable;
+		var table = bundle.gen < 9 ? tables['gen' + bundle.gen] : tables;
+		if (!it || !table) return;
+		var rows = table.itemSet || (table.items || []).map(function (r) { return typeof r === 'string' ? ['item', r] : [r[0], r[1]]; });
+		var removed = {};
+		(it.removed || []).forEach(function (id) { removed[id] = true; });
+		rows = rows.filter(function (r) { return !(r[0] === 'item' && removed[r[1]]); });
+		// Drop headers whose section is now empty.
+		rows = rows.filter(function (r, i) { return r[0] !== 'header' || (i + 1 < rows.length && rows[i + 1][0] !== 'header'); });
+		var added = (it.added || []).filter(function (id) { return !removed[id]; });
+		if (added.length) rows = [['header', 'Added to this metagame']].concat(added.map(function (id) { return ['item', id]; }), rows);
+		table.itemSet = rows;
+		table.items = null;
+	}
+
 	function apply(bundle) {
 		var base = new URL(bundleUrl, location.href);
 		formatKey = bundle.formatId.replace(/^gen\d/, '');
@@ -111,6 +131,7 @@
 			display[engine] = shown;
 			insertSearchIndex(id, 'move');
 		});
+		applyItems(bundle);
 		rules = bundle.rules || { teamSize: { min: 1, max: 6 }, level: 100, speciesClause: true };
 		// Moves the frame generation dropped ("Past", e.g. Pursuit in Gen 9) exist in this metagame when
 		// the creator gave them to a species (the compiler enables them on the server); show them too.
