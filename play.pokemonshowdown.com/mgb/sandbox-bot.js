@@ -12,6 +12,10 @@
 	if (!window.MGB_PLAY || !MGB_PLAY.sandbox || !window.MGB_READY) return;
 
 	var bundle, formatId, ws, botName = '', owner = '', botReady = false;
+	// Moves the default clauses ban (Evasion, OHKO); more are learned from the server's rejections.
+	var avoid = { doubleteam: 1, minimize: 1, fissure: 1, guillotine: 1, horndrill: 1, sheercold: 1 };
+	var avoidSpecies = {}, avoidAbility = {};
+	var accepting = 0; // retries left while accepting the owner's challenge
 	var server = Config.defaultserver;
 	var url = (server.httpport ? 'wss' : 'ws') + '://' + server.host + ':' + server.port + '/showdown/websocket';
 
@@ -26,7 +30,7 @@
 
 	/** Random legal team: distinct species, first ability, up to four random moves. */
 	function randomTeam() {
-		var ids = shuffle(Object.keys(bundle.species));
+		var ids = shuffle(Object.keys(bundle.species).filter(function (id) { return !avoidSpecies[id]; }));
 		var size = Math.min(ids.length, (bundle.rules && bundle.rules.teamSize.max) || 6);
 		return Teams.pack(ids.slice(0, size).map(function (id) {
 			var sp = bundle.species[id];
@@ -35,8 +39,8 @@
 			return {
 				species: sp.name, // engine name, as the server expects
 				name: shown.length <= 18 ? shown : '', // players see the display name (decision 0035)
-				ability: abilities['0'] || '',
-				moves: shuffle(bundle.learnsets[id] || []).slice(0, 4),
+				ability: ['0', '1', 'H', 'S'].map(function (k) { return abilities[k]; }).filter(function (a) { return a && !avoidAbility[toID(a)]; })[0] || abilities['0'] || '',
+				moves: shuffle((bundle.learnsets[id] || []).filter(function (m) { return !avoid[m]; })).slice(0, 4),
 				evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
 			};
 		}));
@@ -60,6 +64,27 @@
 		};
 		new MutationObserver(relabel).observe(document.body, { childList: true, subtree: true });
 		relabel();
+	}
+
+	function acceptWithNewTeam() {
+		send('', '/utm ' + randomTeam());
+		send('', '/accept ' + owner);
+	}
+
+	/** Server rejection lines look like "Tidecat-Wda's move Double Team is banned by Evasion Moves Clause." */
+	function learnFromRejection(text) {
+		text.split('|').forEach(function (line) {
+			var m = /^-?\s*(.+?)'s move (.+?) (?:is banned|is not allowed|can't|is illegal)/.exec(line.trim());
+			if (m) avoid[toID(m[2])] = 1;
+			var sp = /^-?\s*(.+?) is banned/.exec(line.trim());
+			if (sp && !/'s /.test(sp[1])) avoidSpecies[toID(sp[1])] = 1;
+			var cant = /^-?\s*(.+?) can't learn (.+?)\.?$/.exec(line.trim());
+			if (cant) avoid[toID(cant[2])] = 1;
+			var none = /^-?\s*(.+?) has no moves/.exec(line.trim());
+			if (none) avoidSpecies[toID(none[1])] = 1;
+			var ab = /^-?\s*(.+?)'s ability (.+?) (?:is banned|is not allowed|is illegal)/.exec(line.trim());
+			if (ab) avoidAbility[toID(ab[2])] = 1;
+		});
 	}
 
 	function choose(room, req) {
@@ -100,12 +125,25 @@
 		case 'pm':
 			// An incoming challenge from the owner: accept with a fresh team.
 			if (/\/challenge\s/.test(parts.slice(4).join('|')) && toID(parts[2]) === toID(owner)) {
-				send('', '/utm ' + randomTeam());
-				send('', '/accept ' + owner);
+				accepting = 8;
+				acceptWithNewTeam();
 			}
 			break;
 		case 'popup':
-			log('server: ' + parts.slice(2).join('|'));
+			var text = parts.slice(2).join('|');
+			log('server: ' + text);
+			// Our team was rejected while accepting: leave out what was banned and try again.
+			if (accepting && /rejected|banned|can't learn|not allowed|illegal/i.test(text)) {
+				learnFromRejection(text);
+				if (--accepting > 0) acceptWithNewTeam();
+				else {
+					send('', '/reject ' + owner);
+					send('', '/pm ' + owner + ', Sorry, I could not build a legal team for this metagame: ' + text.replace(/\|+/g, ' ').slice(0, 250));
+				}
+			}
+			break;
+		case 'init':
+			if (parts[2] === 'battle') accepting = 0;
 			break;
 		case 'request':
 			if (parts[2]) choose(room, JSON.parse(parts.slice(2).join('|')));
