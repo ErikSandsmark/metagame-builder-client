@@ -53,6 +53,33 @@
 		}
 	}
 
+	// Search by any word of a species' display name (e.g. "charizard" finds "Missing Charizard"), and by
+	// the display name itself when it differs from the engine id (renamed species). Alias entries use
+	// Showdown's format [alias, type, index of the real entry, highlight offset]; offset 0 = no highlight.
+	function insertSearchAliases(id, type, displayName) {
+		var idx = window.BattleSearchIndex;
+		if (!idx) return;
+		var words = String(displayName).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+		for (var k = 0; k < words.length; k++) {
+			var alias = words.slice(k).join('');
+			if (!alias || id.indexOf(alias) === 0) continue; // the real entry already matches this prefix
+			var lo = 0, hi = idx.length;
+			while (lo < hi) { var mid = (lo + hi) >> 1; if (idx[mid][0] < alias) lo = mid + 1; else hi = mid; }
+			var dup = false;
+			for (var j = lo; j < idx.length && idx[j][0] === alias; j++) if (idx[j].length > 2 && idx[idx[j][2]] && idx[idx[j][2]][0] === id) dup = true;
+			if (dup) continue;
+			idx.splice(lo, 0, [alias, type, -1, 0]);
+			window.BattleSearchIndexOffset.splice(lo, 0, '');
+			for (var i = 0; i < idx.length; i++) {
+				if (i !== lo && idx[i].length > 2 && typeof idx[i][2] === 'number' && idx[i][2] >= lo) idx[i][2]++;
+			}
+			var t = 0, u = idx.length;
+			while (t < u) { var m = (t + u) >> 1; if (idx[m][0] < id) t = m + 1; else u = m; }
+			while (t < idx.length && idx[t][0] === id && !(idx[t].length <= 2 && idx[t][1] === type)) t++;
+			idx[lo][2] = t;
+		}
+	}
+
 	// Items (decision 0045): the teambuilder offers the frame generation's item list; items removed from
 	// the metagame leave it, and items added from other generations come first. Items outside the list
 	// show as illegal, matching the server (removed items are banned, added ones enabled in the mod).
@@ -106,6 +133,7 @@
 				icon: s.icon && new URL(s.icon, base).href,
 			};
 			insertSearchIndex(id, 'pokemon');
+			insertSearchAliases(id, 'pokemon', shown);
 		});
 		// Library moves this metagame actually uses (in any learnset); custom moves are keyed separately.
 		var usedLibrary = {};
