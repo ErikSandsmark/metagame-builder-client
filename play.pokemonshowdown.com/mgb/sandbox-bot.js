@@ -12,9 +12,9 @@
 	'use strict';
 	if (!window.MGB_PLAY || !MGB_PLAY.sandbox || !window.MGB_READY) return;
 
-	var bundle, formatId, ws, botName = '', owner = '', botReady = false;
+	var bundle, formatId, ws, botName = '', owner = '', botReady = false, retries = 0;
 	// Moves the default clauses ban (Evasion, OHKO); more are learned from the server's rejections.
-	var avoid = { doubleteam: 1, minimize: 1, fissure: 1, guillotine: 1, horndrill: 1, sheercold: 1 };
+	var avoid = { doubleteam: 1, minimize: 1, acupressure: 1, fissure: 1, guillotine: 1, horndrill: 1, sheercold: 1 };
 	var avoidSpecies = {}, avoidAbility = {};
 	var accepting = 0; // retries left while accepting the owner's challenge
 	var lastOwnerTeam = ''; // the team the owner challenged with ("Same as mine")
@@ -167,7 +167,7 @@
 		switch (parts[1]) {
 		case 'challstr':
 			var body = new URLSearchParams({ act: 'botassertion', challstr: parts.slice(2).join('|') });
-			fetch(MGB_PLAY.authEndpoint, { method: 'POST', body: body, credentials: 'include' }).then(function (r) { return r.text(); }).then(function (t) {
+			fetch(MGB_PLAY.authEndpoint, { method: 'POST', body: body, credentials: 'include' }).then(function (r) { return r.text(); }).catch(function (e) { log('bot sign-in failed: ' + e); return ''; }).then(function (t) {
 				if (t.charAt(0) !== ']') { log('no bot identity: ' + t); return; }
 				var data = JSON.parse(t.slice(1));
 				botName = data.name;
@@ -183,7 +183,8 @@
 			break;
 		case 'pm':
 			// An incoming challenge from the owner: accept with a fresh team.
-			if (/\/challenge\s/.test(parts.slice(4).join('|')) && toID(parts[2]) === toID(owner)) {
+			// Only the owner's challenges in this tab's metagame (another tab may run another sandbox).
+			if (/\/challenge\s/.test(parts.slice(4).join('|')) && toID(parts[2]) === toID(owner) && parts.slice(4).join('|').indexOf(formatId) >= 0) {
 				accepting = 8;
 				acceptWithNewTeam();
 			}
@@ -226,7 +227,13 @@
 			if (data.charAt(0) === '>') { var nl = data.indexOf('\n'); room = data.slice(1, nl); data = data.slice(nl + 1); }
 			data.split('\n').forEach(function (line) { if (line.charAt(0) === '|') onLine(room, line); });
 		};
-		ws.onclose = function () { log('disconnected'); };
+		// The battle server restarts on deploys: come back on our own (with a growing delay).
+		ws.onclose = function () {
+			botReady = false;
+			log('disconnected; reconnecting');
+			setTimeout(connect, Math.min(30000, 2000 * Math.pow(2, retries++)));
+		};
+		ws.onopen = function () { retries = 0; };
 	}
 
 	MGB_READY.then(function () {

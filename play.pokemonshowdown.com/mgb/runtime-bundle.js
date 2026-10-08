@@ -100,6 +100,15 @@
 		table.items = null;
 	}
 
+	// Art URLs go into markup and CSS url(): only http(s), with the characters that could end a CSS
+	// url() or an attribute percent-encoded (the compiler only allows our own storage anyway).
+	function artUrl(u, base) {
+		if (!u) return undefined;
+		try { var href = new URL(u, base).href; } catch (e) { return undefined; }
+		if (!/^https?:\/\//.test(href)) return undefined;
+		return href.replace(/[()'"\\\s]/g, function (c) { return '%' + c.charCodeAt(0).toString(16).toUpperCase(); });
+	}
+
 	function apply(bundle) {
 		var base = new URL(bundleUrl, location.href);
 		formatKey = bundle.formatId.replace(/^gen\d/, '');
@@ -127,11 +136,7 @@
 			(bundle.learnsets[id] || []).forEach(function (m) { ls[m] = gc; });
 			tables.learnsets[id] = ls;
 			var s = bundle.sprites[id] || {};
-			custom[id] = {
-				front: s.front && new URL(s.front, base).href,
-				back: s.back && new URL(s.back, base).href,
-				icon: s.icon && new URL(s.icon, base).href,
-			};
+			custom[id] = { front: artUrl(s.front, base), back: artUrl(s.back, base), icon: artUrl(s.icon, base) };
 			insertSearchIndex(id, 'pokemon');
 			insertSearchAliases(id, 'pokemon', shown);
 		});
@@ -392,7 +397,8 @@
 				if (!species.exists) return html;
 				var types = pokemon.getTypeList ? pokemon.getTypeList() : species.types;
 				var abilities = [];
-				for (var k in species.abilities) if (species.abilities[k] && abilities.indexOf(species.abilities[k]) < 0) abilities.push(species.abilities[k]);
+				// Gen 1-2 species have "No Ability": nothing to show.
+				for (var k in species.abilities) if (species.abilities[k] && species.abilities[k] !== 'No Ability' && abilities.indexOf(species.abilities[k]) < 0) abilities.push(species.abilities[k]);
 				var tags = '<div class="mgb-info">' + types.map(function (t) {
 					return '<img src="' + Dex.resourcePrefix + 'sprites/types/' + encodeURIComponent(t) + '.png" alt="' + BattleLog.escapeHTML(t) + '" width="32" height="14" />';
 				}).join('') + (abilities.length ? ' <span>' + abilities.map(BattleLog.escapeHTML).join(' / ') + '</span>' : '') + '</div>';
