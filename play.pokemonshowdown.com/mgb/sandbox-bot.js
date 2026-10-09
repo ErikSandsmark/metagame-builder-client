@@ -5,7 +5,7 @@
  * ("MGB Bot xxxxxx", asserted by our web app for signed-in users only). The main menu's Battle
  * button becomes "Battle the bot": it challenges the bot with the selected team, and the bot accepts
  * with the team chosen under "Bot's team" (a random team from the metagame, the player's own team, or
- * one of the player's saved teams) and picks random legal choices. Nothing runs on the server beyond a
+ * one of the player's saved teams; random teams get a standard EV spread and nature) and picks random legal choices. Nothing runs on the server beyond a
  * normal user connection.
  */
 (function () {
@@ -52,6 +52,25 @@
 	}
 
 	/** Random legal team: distinct species, first ability, up to four random moves. */
+	/**
+	 * A standard competitive spread from the species' base stats, so damage tests reflect a real set:
+	 * 252 in the better attacking stat, 252 Speed if it's fast enough to use it (base 70+) or else 252 HP,
+	 * the last 4 in the other bulk stat; the nature raises the attacking stat (or Speed when the other
+	 * attacking stat is the one it lowers). Gen 1-2 have no natures and use maximum stat experience.
+	 */
+	function spread(sp) {
+		var b = sp.baseStats || { hp: 80, atk: 80, def: 80, spa: 80, spd: 80, spe: 80 };
+		if (bundle.gen <= 2) return { evs: { hp: 252, atk: 252, def: 252, spa: 252, spd: 252, spe: 252 }, nature: '' };
+		var physical = b.atk >= b.spa;
+		var fast = b.spe >= 70;
+		var evs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
+		evs[physical ? 'atk' : 'spa'] = 252;
+		if (fast) { evs.spe = 252; evs.hp = 4; } else { evs.hp = 252; evs[b.def >= b.spd ? 'spd' : 'def'] = 4; }
+		// Jolly/Timid: +Spe, -unused attack; Adamant/Modest: +attack, -unused attack.
+		var nature = fast ? (physical ? 'Jolly' : 'Timid') : (physical ? 'Adamant' : 'Modest');
+		return { evs: evs, nature: nature };
+	}
+
 	function randomTeam() {
 		var ids = shuffle(Object.keys(bundle.species).filter(function (id) { return !avoidSpecies[id]; }));
 		var size = Math.min(ids.length, (bundle.rules && bundle.rules.teamSize.max) || 6);
@@ -64,7 +83,8 @@
 				name: shown.length <= 18 ? shown : '', // players see the display name (decision 0035)
 				ability: ['0', '1', 'H', 'S'].map(function (k) { return abilities[k]; }).filter(function (a) { return a && !avoidAbility[toID(a)]; })[0] || abilities['0'] || '',
 				moves: shuffle((bundle.learnsets[id] || []).filter(function (m) { return !avoid[m]; })).slice(0, 4),
-				evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+				evs: spread(sp).evs,
+				nature: spread(sp).nature,
 			};
 		}));
 	}

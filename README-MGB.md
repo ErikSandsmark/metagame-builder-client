@@ -12,5 +12,5 @@ under the GNU Affero General Public License v3 (see `LICENSE`), as the licence r
   `mgb/assets/`. Both are shown as they run in our private build; paths refer to that layout.
 - **Build:** `npm ci && node build full --no-update` (see upstream `README.md`).
 
-Synced from the private repository at `f6af578` on 2026-10-08. This mirror contains no server
+Synced from the private repository at `4c310f3` on 2026-10-09. This mirror contains no server
 code, keys or private endpoints.
