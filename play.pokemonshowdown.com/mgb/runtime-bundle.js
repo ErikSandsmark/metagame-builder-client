@@ -259,6 +259,7 @@
 		(m.addedTypes || []).forEach(function (t) {
 			lines.push('The ' + t.type + ' type is added' + (bundle.gen <= 3 ? ', and its moves are ' + t.category.toLowerCase() + '.' : '.'));
 		});
+		(m.removedTypes || []).forEach(function (t) { lines.push('The ' + t + " type isn't in this metagame: no creature has it, and its moves are out."); });
 		var mult = function (x) { return x === 0.5 ? '½×' : x + '×'; };
 		var tm = m.typeMatchups || [];
 		if (tm.length && tm.length <= 6) lines.push('Type matchups: ' + tm.map(function (x) { return x.attacker + ' → ' + x.defender + ' ' + mult(x.multiplier); }).join(', ') + '.');
