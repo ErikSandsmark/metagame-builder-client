@@ -235,6 +235,13 @@
 			if (id === 'par' && r.speedDrop === false) lines.push('Paralysis doesn\'t lower Speed.');
 			if (id === 'brn' && r.residual === false) lines.push('Burn deals no damage at the end of the turn.');
 		});
+		var m = bundle.mechanics || {};
+		if (m.criticalHits === false) lines.push('Critical hits are turned off.');
+		(m.addedTypes || []).forEach(function (t) {
+			lines.push('The ' + t.type + ' type is added' + (bundle.gen <= 3 ? ', and its moves are ' + t.category.toLowerCase() + '.' : '.'));
+		});
+		var edited = Object.keys(bundle.moveAdjustments || {}).map(function (id) { return Dex.moves.get(id).name; }).sort();
+		if (edited.length) lines.push('Changed moves: ' + edited.join(', ') + '.');
 		var news = document.querySelector('#room-news .newsentry');
 		if (!lines.length || !news || news.querySelector('.mgb-house-rules')) return;
 		var box = document.createElement('div');
@@ -309,6 +316,7 @@
 		m[name] = title;
 		m[name.replace(/^\[Gen \d\] /, '')] = title;
 		m[bundleFormatId.replace(/^gen\d/, '')] = title; // team folders show the raw id
+		m[bundleFormatId] = title; // the open folder's heading shows the whole id ("gen3Edge Lab" otherwise)
 		return m;
 	}
 	// The format list can arrive before this script runs, so filter what was already parsed too.
