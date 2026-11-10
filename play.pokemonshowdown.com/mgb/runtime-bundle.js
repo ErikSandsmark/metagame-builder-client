@@ -136,7 +136,7 @@
 			(bundle.learnsets[id] || []).forEach(function (m) { ls[m] = gc; });
 			tables.learnsets[id] = ls;
 			var s = bundle.sprites[id] || {};
-			custom[id] = { front: artUrl(s.front, base), back: artUrl(s.back, base), icon: artUrl(s.icon, base) };
+			custom[id] = { front: artUrl(s.front, base), back: artUrl(s.back, base), icon: artUrl(s.icon, base), shinyFront: s.shinyFront ? artUrl(s.shinyFront, base) : '', shinyBack: s.shinyBack ? artUrl(s.shinyBack, base) : '' };
 			insertSearchIndex(id, 'pokemon');
 			insertSearchAliases(id, 'pokemon', shown);
 		});
@@ -163,6 +163,16 @@
 			engineMoves[id] = engine;
 			display[engine] = shown;
 			insertSearchIndex(id, 'move');
+		});
+		// Moves the creator adjusted (decision 0058): the numbers players see match the battle.
+		Object.keys(bundle.moveAdjustments || {}).forEach(function (id) {
+			if (window.BattleMovedex[id]) Object.assign(window.BattleMovedex[id], bundle.moveAdjustments[id]);
+			var tables = window.BattleTeambuilderTable || {};
+			for (var key in tables) {
+				var moveData = tables[key] && tables[key].overrideMoveData;
+				if (moveData && moveData[id]) Object.assign(moveData[id], bundle.moveAdjustments[id]);
+			}
+			for (var mod3 in Dex.moddedDexes) delete Dex.moddedDexes[mod3].cache.Moves[id];
 		});
 		applyItems(bundle);
 		rules = bundle.rules || { teamSize: { min: 1, max: 6 }, level: 100, speciesClause: true };
@@ -246,10 +256,13 @@
 	Dex.getSpriteData = function (pokemon, isFront, options) {
 		var c = custom[speciesId(pokemon)];
 		if (!c) return origSprite.apply(this, arguments);
+		// Same rule as upstream's getSpriteData: a transformed Pokemon shows the target's shininess.
+		var isShiny = pokemon && pokemon.volatiles ? (pokemon.volatiles.transform ? pokemon.volatiles.transform[2] : pokemon.shiny) : options && options.shiny;
+		var useShiny = isShiny && c.shinyFront;
 		return {
 			gen: (options && options.gen) || 6,
 			w: 96, h: 96, y: 0,
-			url: isFront ? c.front : (c.back || c.front),
+			url: isFront ? (useShiny ? c.shinyFront : c.front) : (useShiny ? (c.shinyBack || c.shinyFront) : (c.back || c.front)),
 			pixelated: false,
 			isFrontSprite: !!isFront,
 			cryurl: '',
@@ -261,7 +274,7 @@
 	Dex.getTeambuilderSprite = function (pokemon) {
 		var c = pokemon && custom[speciesId(pokemon.species || pokemon)];
 		if (!c) return origTbSprite.apply(this, arguments);
-		return 'background-image:url(' + c.front + ');background-position:center;background-size:contain;background-repeat:no-repeat';
+		return 'background-image:url(' + (pokemon.shiny && c.shinyFront ? c.shinyFront : c.front) + ');background-position:center;background-size:contain;background-repeat:no-repeat';
 	};
 
 	var origIcon = Dex.getPokemonIcon;
