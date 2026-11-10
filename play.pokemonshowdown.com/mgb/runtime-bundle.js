@@ -109,6 +109,24 @@
 		return href.replace(/[()'"\\\s]/g, function (c) { return '%' + c.charCodeAt(0).toString(16).toUpperCase(); });
 	}
 
+	// Type chart and Gen 1-3 physical/special split (decisions 0058, 0063): tooltips, the teambuilder's
+	// weakness hints and move categories follow the creator's chart, like the battle does.
+	function applyTypes(bundle) {
+		if (bundle.specialTypes) {
+			var special = {};
+			bundle.specialTypes.forEach(function (t) { special[t] = true; });
+			Dex.getGen3Category = function (type) { return special[type] ? 'Special' : 'Physical'; };
+			for (var m in Dex.moddedDexes) { var moves = Dex.moddedDexes[m].cache.Moves; for (var k in moves) delete moves[k]; }
+		}
+		if (!bundle.typechart) return;
+		var dex = Dex.forGen(bundle.gen);
+		Object.keys(bundle.typechart).forEach(function (name) {
+			dex.cache.Types[toID(name)] = Object.assign({}, Dex.types.get(name), { name: name, exists: true, damageTaken: bundle.typechart[name] });
+		});
+		var all = Dex.types.names();
+		dex.types.namesCache = all.filter(function (n) { return n in bundle.typechart; });
+	}
+
 	function apply(bundle) {
 		var base = new URL(bundleUrl, location.href);
 		formatKey = bundle.formatId.replace(/^gen\d/, '');
@@ -174,6 +192,7 @@
 			}
 			for (var mod3 in Dex.moddedDexes) delete Dex.moddedDexes[mod3].cache.Moves[id];
 		});
+		applyTypes(bundle);
 		applyItems(bundle);
 		rules = bundle.rules || { teamSize: { min: 1, max: 6 }, level: 100, speciesClause: true };
 		// Moves the frame generation dropped ("Past", e.g. Pursuit in Gen 9) exist in this metagame when
@@ -240,6 +259,13 @@
 		(m.addedTypes || []).forEach(function (t) {
 			lines.push('The ' + t.type + ' type is added' + (bundle.gen <= 3 ? ', and its moves are ' + t.category.toLowerCase() + '.' : '.'));
 		});
+		var mult = function (x) { return x === 0.5 ? '½×' : x + '×'; };
+		var tm = m.typeMatchups || [];
+		if (tm.length && tm.length <= 6) lines.push('Type matchups: ' + tm.map(function (x) { return x.attacker + ' → ' + x.defender + ' ' + mult(x.multiplier); }).join(', ') + '.');
+		else if (tm.length) lines.push(tm.length + ' type matchups are changed. Move tooltips show the real effectiveness.');
+		Object.keys(m.typeCategories || {}).forEach(function (t) { lines.push(t + ' moves are ' + m.typeCategories[t].toLowerCase() + '.'); });
+		var immNames = { brn: 'burn', par: 'paralysis', psn: 'poison', frz: 'freeze', sandstorm: 'sandstorm damage', hail: 'hail damage', powder: 'powder moves', prankster: 'Prankster status moves', trapped: 'being trapped' };
+		(m.typeImmunities || []).forEach(function (x) { lines.push(x.type + (x.immune ? ' is immune to ' : ' is not immune to ') + (immNames[x.effect] || x.effect) + '.'); });
 		var edited = Object.keys(bundle.moveAdjustments || {}).map(function (id) { return Dex.moves.get(id).name; }).sort();
 		if (edited.length) lines.push('Changed moves: ' + edited.join(', ') + '.');
 		var news = document.querySelector('#room-news .newsentry');
