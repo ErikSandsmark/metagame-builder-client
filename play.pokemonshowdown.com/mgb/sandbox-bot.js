@@ -72,7 +72,8 @@
 	}
 
 	function randomTeam() {
-		var ids = shuffle(Object.keys(bundle.species).filter(function (id) { return !avoidSpecies[id]; }));
+		// Mega forms (decision 0076) aren't picked: a team has the species and its stone, the form comes in battle.
+		var ids = shuffle(Object.keys(bundle.species).filter(function (id) { return !avoidSpecies[id] && !bundle.species[id].megaOf; }));
 		var size = Math.min(ids.length, (bundle.rules && bundle.rules.teamSize.max) || 6);
 		return Teams.pack(ids.slice(0, size).map(function (id) {
 			var sp = bundle.species[id];
