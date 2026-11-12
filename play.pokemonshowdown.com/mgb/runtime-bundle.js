@@ -85,6 +85,12 @@
 	// show as illegal, matching the server (removed items are banned, added ones enabled in the mod).
 	function applyItems(bundle) {
 		var it = bundle.items;
+		// The metagame's own items (Mega stones, decision 0076): plain data the client shows and offers.
+		Object.keys((it && it.custom) || {}).forEach(function (id) {
+			window.BattleItems[id] = Object.assign({}, it.custom[id], { id: id, exists: true });
+			for (var mod in Dex.moddedDexes) delete Dex.moddedDexes[mod].cache.Items[id];
+			insertSearchIndex(id, 'item');
+		});
 		var tables = window.BattleTeambuilderTable;
 		var table = bundle.gen < 9 ? tables['gen' + bundle.gen] : tables;
 		if (!it || !table) return;
@@ -142,9 +148,12 @@
 			// baseSpecies stays the engine name: the client looks species up by it (a display name
 			// would alias back to the same entry and recurse), and the text layer covers where it shows.
 			entry.baseSpecies = engine;
+			// A Mega form (decision 0076) belongs to its species: the client treats it as that species' Mega.
+			if (entry.megaOf && bundle.species[entry.megaOf]) entry.baseSpecies = bundle.species[entry.megaOf].name;
 			entry.tier = entry.tier || 'OU';
 			delete entry.displayName;
 			delete entry.specId;
+			delete entry.megaOf;
 			window.BattlePokedex[id] = entry;
 			for (var mod in Dex.moddedDexes) delete Dex.moddedDexes[mod].cache.Species[id];
 			if (toID(shown) !== id) window.BattleAliases[toID(shown)] = engine;
@@ -155,8 +164,11 @@
 			tables.learnsets[id] = ls;
 			var s = bundle.sprites[id] || {};
 			custom[id] = { front: artUrl(s.front, base), back: artUrl(s.back, base), icon: artUrl(s.icon, base), shinyFront: s.shinyFront ? artUrl(s.shinyFront, base) : '', shinyBack: s.shinyBack ? artUrl(s.shinyBack, base) : '' };
-			insertSearchIndex(id, 'pokemon');
-			insertSearchAliases(id, 'pokemon', shown);
+			// Mega forms aren't picked in the teambuilder (the species and its stone are), so they aren't searchable.
+			if (!bundle.species[id].megaOf) {
+				insertSearchIndex(id, 'pokemon');
+				insertSearchAliases(id, 'pokemon', shown);
+			}
 		});
 		// Library moves this metagame actually uses (in any learnset); custom moves are keyed separately.
 		var usedLibrary = {};
@@ -224,7 +236,9 @@
 			for (var rid in PS.rooms) if (rid === 'teambuilder' || rid.indexOf('team-') === 0) PS.rooms[rid].update(null);
 		}
 
-		var rows = [['header', bundle.title]].concat(Object.keys(bundle.species).map(function (id) {
+		var rows = [['header', bundle.title]].concat(Object.keys(bundle.species).filter(function (id) {
+			return !bundle.species[id].megaOf;
+		}).map(function (id) {
 			return ['pokemon', id];
 		}));
 		var origBase = BattlePokemonSearch.prototype.getBaseResults;
