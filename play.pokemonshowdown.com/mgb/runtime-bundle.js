@@ -23,12 +23,17 @@
 	var bundleUrl = (window.MGB_PLAY && window.MGB_PLAY.bundleUrl) || params.get('mgb');
 	if (!bundleUrl) return;
 	var bundleFormatId = '';
+	/** Tiers (decision 0096): this build's formats, id -> tier name; empty without tiers. */
+	var bundleFormats = {};
+	var ownFormat = function (id) { return id === bundleFormatId || Object.prototype.hasOwnProperty.call(bundleFormats, id); };
 
 	var custom = {}; // speciesid -> { front, back, icon }
 	var engineSpecies = {}; // speciesid -> engine name ("Emberpup-Cnn")
 	var engineMoves = {}; // custom move id -> engine name
 	var rules = null;
 	var formatKey = ''; // format id without the genN prefix, as DexSearch stores it
+	/** Every format of this build by that key (decision 0096): null for the main one, else the species its tier allows. */
+	var formatKeys = {};
 	var itemSuggest = null; // the bundle's item suggestions (decision 0091)
 
 	function genChar(gen) {
@@ -153,6 +158,9 @@
 	function apply(bundle) {
 		var base = new URL(bundleUrl, location.href);
 		formatKey = bundle.formatId.replace(/^gen\d/, '');
+		formatKeys = {};
+		formatKeys[formatKey] = null;
+		(bundle.formats || []).forEach(function (f) { formatKeys[f.id.replace(/^gen\d/, '')] = f.species || null; });
 		var gc = genChar(bundle.gen);
 		var tables = window.BattleTeambuilderTable;
 
@@ -243,6 +251,8 @@
 		if (newsTitle) newsTitle.textContent = bundle.title;
 		showHouseRules(bundle);
 		bundleFormatId = bundle.formatId;
+		bundleFormats = {};
+		(bundle.formats || []).forEach(function (f) { bundleFormats[f.id] = f.tier; });
 		migrateTeams();
 		// The team list may already have been drawn (e.g. the page opened on #teambuilder) before this
 		// bundle arrived; its cached icons are blanks for our species, so redraw them now.
@@ -260,13 +270,16 @@
 		}));
 		var origBase = BattlePokemonSearch.prototype.getBaseResults;
 		BattlePokemonSearch.prototype.getBaseResults = function () {
-			if (this.format !== formatKey) return origBase.apply(this, arguments);
-			if (!rules.speciesClause || !editor) return rows.slice();
+			if (!Object.prototype.hasOwnProperty.call(formatKeys, this.format)) return origBase.apply(this, arguments);
+			// A tier's format offers only the species that tier allows (decision 0096).
+			var allowed = formatKeys[this.format];
+			var tierRows = allowed ? rows.filter(function (r) { return r[0] !== 'pokemon' || allowed.indexOf(r[1]) >= 0; }) : rows;
+			if (!rules.speciesClause || !editor) return tierRows.slice();
 			// Species Clause: species already on the team (other slots) are not offered again.
 			var current = this.set;
 			var taken = {};
 			(editor.sets || []).forEach(function (set) { if (set && set !== current && set.species) taken[Dex.species.get(set.species).id] = true; });
-			return rows.filter(function (r) { return r[0] !== 'pokemon' || !taken[r[1]]; });
+			return tierRows.filter(function (r) { return r[0] !== 'pokemon' || !taken[r[1]]; });
 		};
 
 		// Items to suggest for the set (decision 0091): by its ability and moves (Guts: Flame Orb; Drought: Heat Rock;
@@ -279,7 +292,7 @@
 		BattleItemSearch.prototype.getBaseResults = function () {
 			var base = origItems.apply(this, arguments);
 			var suggest = itemSuggest;
-			if (this.format !== formatKey || !suggest || !this.set) return base;
+			if (!Object.prototype.hasOwnProperty.call(formatKeys, this.format) || !suggest || !this.set) return base;
 			var offered = {};
 			base.forEach(function (r) { if (r[0] === 'item') offered[r[1]] = true; });
 			var reasons = [];
@@ -390,7 +403,7 @@
 			var e = list[i];
 			if (!e || e.charAt(0) === ',') continue;
 			var name = e.lastIndexOf(',') >= 0 ? e.slice(0, e.lastIndexOf(',')) : e;
-			if (toID(name) === bundleFormatId) {
+			if (ownFormat(toID(name))) {
 				keep.push(e);
 				if (window.MGB_TEXT) window.MGB_TEXT.add(makeMap(name));
 			}
@@ -398,12 +411,13 @@
 		return keep;
 	}
 	function makeMap(name) {
-		// The menus show the name with and without the "[Gen N] " prefix.
-		var m = {}, title = window.MGB_BUNDLE_TITLE || name;
+		// The menus show the name with and without the "[Gen N] " prefix; with tiers, "Realmons OU".
+		var id = toID(name), tier = bundleFormats[id];
+		var m = {}, title = (window.MGB_BUNDLE_TITLE || name) + (tier ? ' ' + tier : '');
 		m[name] = title;
 		m[name.replace(/^\[Gen \d\] /, '')] = title;
-		m[bundleFormatId.replace(/^gen\d/, '')] = title; // team folders show the raw id
-		m[bundleFormatId] = title; // the open folder's heading shows the whole id ("gen3Edge Lab" otherwise)
+		m[id.replace(/^gen\d/, '')] = title; // team folders show the raw id
+		m[id] = title; // the open folder's heading shows the whole id ("gen3Edge Lab" otherwise)
 		return m;
 	}
 	// The format list can arrive before this script runs, so filter what was already parsed too.
@@ -412,9 +426,8 @@
 		if (lastFormats && window.PS && PS.mainmenu) {
 			PS.mainmenu.parseFormats(lastFormats);
 		} else if (window.BattleFormats) {
-			for (var id in BattleFormats) if (id !== bundleFormatId) delete BattleFormats[id];
-			var f = BattleFormats[bundleFormatId];
-			if (f && window.MGB_TEXT) window.MGB_TEXT.add(makeMap(f.name));
+			for (var id in BattleFormats) if (!ownFormat(id)) delete BattleFormats[id];
+			for (var own in BattleFormats) if (window.MGB_TEXT) window.MGB_TEXT.add(makeMap(BattleFormats[own].name));
 		}
 		if (window.PS && PS.mainmenu) PS.mainmenu.update(null);
 	}
@@ -446,8 +459,11 @@
 		if (!m) return;
 		var moved = 0;
 		PS.teams.list.forEach(function (team) {
-			var f = /^(gen\dmgb[0-9a-f]{12})(v\d+|sandbox)$/.exec(team.format || '');
-			if (f && f[1] === m[1] && team.format !== bundleFormatId) { team.format = bundleFormatId; moved++; }
+			// A team keeps its tier (decision 0096) when this version still has it; otherwise it goes to the main format.
+			var f = /^(gen\dmgb[0-9a-f]{12})(v\d+|sandbox)(t[a-z0-9]{1,12})?$/.exec(team.format || '');
+			if (!f || f[1] !== m[1]) return;
+			var to = f[3] && ownFormat(bundleFormatId + f[3]) ? bundleFormatId + f[3] : bundleFormatId;
+			if (team.format !== to) { team.format = to; moved++; }
 		});
 		if (moved) {
 			PS.teams.save();
