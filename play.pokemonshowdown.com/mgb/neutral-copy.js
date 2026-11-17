@@ -19,6 +19,8 @@
 		['Pokémon Showdown', 'Metagame Builder'],
 		['Pokémon', 'creature'], ['Pokemon', 'creature'], ['POKéMON', 'CREATURE'], ['POKÉMON', 'CREATURE'],
 		['Pokédex', 'dex'], ['Poké Ball', 'ball'], ['Poké', ''],
+		// Upstream's jokey empty state reads as a bug to new players.
+		['you have no teams lol', 'No teams yet. Make one with New team.'],
 	];
 
 	function escape(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }

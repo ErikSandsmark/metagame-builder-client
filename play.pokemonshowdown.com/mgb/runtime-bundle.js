@@ -29,6 +29,7 @@
 	var engineMoves = {}; // custom move id -> engine name
 	var rules = null;
 	var formatKey = ''; // format id without the genN prefix, as DexSearch stores it
+	var itemSuggest = null; // the bundle's item suggestions (decision 0091)
 
 	function genChar(gen) {
 		// The teambuilder lists a move only if its learnset entry has the generation digit; for Gen 9
@@ -101,6 +102,22 @@
 		// Drop headers whose section is now empty.
 		rows = rows.filter(function (r, i) { return r[0] !== 'header' || (i + 1 < rows.length && rows[i + 1][0] !== 'header'); });
 		var added = (it.added || []).filter(function (id) { return !removed[id]; });
+		// Grouped by what they're good for (decision 0091): Healing, More damage, Choice… in the builder's order, each
+		// item under its first group; the rest last. Items added to the metagame still come first.
+		var kinds = it.kinds || {}, labels = it.kindLabels || {};
+		if (Object.keys(labels).length) {
+			var addedSet = {};
+			added.forEach(function (id) { addedSet[id] = true; });
+			var items = rows.filter(function (r) { return r[0] === 'item' && !addedSet[r[1]]; });
+			var grouped = [];
+			Object.keys(labels).forEach(function (k) {
+				var list = items.filter(function (r) { return (kinds[r[1]] || [])[0] === k; });
+				if (list.length) grouped = grouped.concat([['header', labels[k]]], list);
+			});
+			var other = items.filter(function (r) { return !(kinds[r[1]] || []).length; });
+			if (other.length) grouped = grouped.concat([['header', 'Other items']], other);
+			rows = grouped;
+		}
 		if (added.length) rows = [['header', 'Added to this metagame']].concat(added.map(function (id) { return ['item', id]; }), rows);
 		table.itemSet = rows;
 		table.items = null;
@@ -250,6 +267,35 @@
 			var taken = {};
 			(editor.sets || []).forEach(function (set) { if (set && set !== current && set.species) taken[Dex.species.get(set.species).id] = true; });
 			return rows.filter(function (r) { return r[0] !== 'pokemon' || !taken[r[1]]; });
+		};
+
+		// Items to suggest for the set (decision 0091): by its ability and moves (Guts: Flame Orb; Drought: Heat Rock;
+		// Shell Smash: White Herb), first, when the metagame offers them.
+		// Installed once; a later bundle only replaces the data, so headers never stack.
+		itemSuggest = bundle.items && bundle.items.suggest;
+		if (BattleItemSearch.prototype.mgbSuggests) return console.log('[MGB] bundle applied: ' + bundle.formatId);
+		BattleItemSearch.prototype.mgbSuggests = true;
+		var origItems = BattleItemSearch.prototype.getBaseResults;
+		BattleItemSearch.prototype.getBaseResults = function () {
+			var base = origItems.apply(this, arguments);
+			var suggest = itemSuggest;
+			if (this.format !== formatKey || !suggest || !this.set) return base;
+			var offered = {};
+			base.forEach(function (r) { if (r[0] === 'item') offered[r[1]] = true; });
+			var reasons = [];
+			var ability = toID(this.set.ability);
+			if (ability && suggest.abilities[ability]) reasons.push([Dex.abilities.get(ability).name, suggest.abilities[ability]]);
+			(this.set.moves || []).forEach(function (m) { var id = toID(m); if (suggest.moves[id]) reasons.push([Dex.moves.get(id).name, suggest.moves[id]]); });
+			var picked = {}, rows = [], why = [];
+			reasons.forEach(function (x) {
+				x[1].forEach(function (id) {
+					if (!offered[id] || picked[id]) return;
+					picked[id] = true; rows.push(['item', id]);
+					if (why.indexOf(x[0]) < 0) why.push(x[0]);
+				});
+			});
+			if (!rows.length) return base;
+			return [['header', 'Suggested for ' + why.join(', ')]].concat(rows, base.filter(function (r) { return !(r[0] === 'item' && picked[r[1]]); }));
 		};
 
 		console.log('[MGB] bundle applied: ' + bundle.formatId + ', ' + Object.keys(bundle.species).length + ' species');
@@ -547,5 +593,20 @@
 		return b;
 	}).catch(function (e) {
 		console.error('[MGB] bundle failed to load', e);
+	});
+})();
+
+/**
+ * On a phone (the client's narrow mode), open on the room, not on the room list (mobile check, 2026-11-17).
+ * Upstream starts scrolled to the 280px list, where we have only Home and Chat Rooms; the room with Battle! sat half
+ * off-screen. ☰ still brings the list back. Once, at load.
+ */
+(function () {
+	'use strict';
+	window.addEventListener('load', function () {
+		setTimeout(function () {
+			var V = window.PSView;
+			if (V && V.narrowMode && V.getScrollX() < 1) V.scrollToRoom();
+		}, 0);
 	});
 })();
