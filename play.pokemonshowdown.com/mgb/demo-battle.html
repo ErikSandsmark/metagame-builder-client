@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html><head>
+	<!--
+		MGB landing page battle demo (docs/design/landing-onboarding.md). The real battle client replays a battle in the
+		sample metagame recorded with the real engine (/landing/demo-battle-<battle>.json, by mgb/record-demo-battle.mjs in
+		the server fork; ?battle=sandbox or play): the start plays, then a click on one of the lead's moves plays that move's recorded turn. No battle
+		server; nothing is sent anywhere. Everything loads from our own origin under /play/ (I3). Embedded in an iframe
+		on the landing page, which passes its theme (?theme=dark, then postMessage { type: "mgb-theme", dark }).
+	-->
+	<base href="/play/">
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+	<title>Battle demo</title>
+	<meta name="robots" content="noindex" />
+	<link rel="stylesheet" href="style/font-awesome.css" />
+	<link rel="stylesheet" href="style/battle.css" />
+	<link rel="stylesheet" href="style/client2.css" />
+	<link rel="stylesheet" href="style/sim-types.css" />
+	<link rel="stylesheet" href="mgb/theme.css" />
+	<style>
+		html, body { margin: 0; background: transparent !important; overflow: hidden; }
+		body { font: 10pt Verdana, sans-serif; color: #222; }
+		body.dark { color: #ddd; }
+		.demo { display: flex; gap: 12px; align-items: flex-start; padding: 1px 0 0; }
+		.stage { width: 640px; max-width: 100%; flex: none; }
+		/* The client places the battle and its log absolutely, 9 px down; here they sit side by side, tops and bottoms
+		   level: both 362 px tall with their borders. */
+		.battle { position: relative; top: 0 !important; left: 0 !important; margin: 0; width: 640px; height: 360px; border-radius: 8px; overflow: hidden; }
+		.battle-log { position: relative !important; top: 0 !important; left: 0 !important; right: auto !important; bottom: auto !important; margin: 0;
+			flex: 1; min-width: 0; height: 362px; box-sizing: border-box; border-radius: 8px; }
+		.controls { min-height: 98px; padding: 10px 2px 0; }
+		.prompt { margin: 0 0 2px 4px; font-size: 10pt; }
+		.movemenu { display: flow-root; margin-right: 0; padding-left: 0; }
+		.movemenu .movebutton { width: calc(25% - 4px); margin-right: 4px; cursor: pointer; }
+		.again { margin: 8px 0 0 4px; }
+		.again button { font: 10pt Verdana, sans-serif; padding: 6px 12px; border-radius: 5px; border: 1px solid #aaa; background: linear-gradient(#f6f6f6, #e3e3e3); cursor: pointer; }
+		.dark .again button { color: #ddd; background: linear-gradient(#484848, #383838); border-color: #555; }
+		.loading { display: flex; align-items: center; justify-content: center; height: 360px; color: #777; }
+		/* A phone: the battle scales to the width (the client's autoresize); the log goes. */
+		@media (max-width: 900px) { .battle-log { display: none; } .demo { display: block; } .stage { width: auto; } }
+		/* A phone: two moves to a row. */
+		@media (max-width: 560px) { .movemenu .movebutton { width: calc(50% - 4px); } .controls { min-height: 142px; } }
+	</style>
+</head><body>
+	<div class="demo">
+		<div class="stage">
+			<div class="battle"><div class="loading">Loading the battle…</div></div>
+			<div class="controls" aria-live="polite"></div>
+		</div>
+		<div class="battle-log"></div>
+	</div>
+
+	<script>
+		var params = new URLSearchParams(location.search);
+		if (params.get('theme') === 'dark') document.body.className = 'dark';
+		window.addEventListener('message', function (e) {
+			if (e.origin === location.origin && e.data && e.data.type === 'mgb-theme') document.body.className = e.data.dark ? 'dark' : '';
+		});
+		window.MGB_PLAY = { bundleUrl: '/api/demo/bundle' };
+		// As /play/mgb-config.js sets it (routes under /play), without a battle server: nothing connects.
+		window.Config = { version: '0', bannedHosts: [], whitelist: [], customcolors: {}, routes: { root: location.host, client: location.host + '/play', dex: location.host, replays: location.host, users: location.host + '/play' }, defaultserver: {} };
+	</script>
+	<script src="mgb/neutral-copy.js"></script>
+	<script src="js/lib/jquery-2.2.4.min.js"></script>
+	<script src="js/lib/html-sanitizer-minified.js"></script>
+	<script src="js/battle-sound.js"></script>
+	<script src="js/battledata.js"></script>
+	<script src="data/graphics.js"></script>
+	<script src="data/text/en.js"></script>
+	<script src="data/pokedex.js"></script>
+	<script src="data/moves.js"></script>
+	<script src="data/abilities.js"></script>
+	<script src="data/items.js"></script>
+	<script src="data/typechart.js"></script>
+	<script src="data/aliases.js"></script>
+	<script src="data/teambuilder-tables.js"></script>
+	<script src="js/battle-tooltips.js"></script>
+	<script src="js/battle.js"></script>
+	<script src="js/battle-dex-search.js"></script>
+	<script src="mgb/runtime-bundle.js"></script>
+	<script>
+	(function () {
+		'use strict';
+		var $controls = $('.controls');
+		var data = null, battle = null;
+
+		function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+		/** A fresh battle at the start of turn 1: the lead sent out, the sun up (Drought). */
+		function start() {
+			if (battle) battle.destroy();
+			$('.battle').empty(); $('.battle-log').empty();
+			battle = new Battle({ $frame: $('.battle'), $logFrame: $('.battle-log'), log: data.start.slice(), isReplay: true, paused: true, autoresize: true });
+			battle.setMute(true);
+			battle.subscribe(function (state) { if (state === 'atqueueend') done(); });
+			waiting = 'start';
+			battle.play();
+			$controls.html('');
+		}
+
+		/** The lead's four moves, as the client draws them in a real battle. */
+		function moveMenu() {
+			var html = '<p class="prompt">What will <strong>' + esc(data.lead) + '</strong> do?</p><div class="movemenu">';
+			data.moves.forEach(function (m, i) {
+				html += '<button class="movebutton type-' + esc(m.type) + '" data-i="' + i + '">' + esc(m.name) + '<br><small class="type">' + esc(m.type) + '</small> <small class="pp">' + m.pp + '/' + m.pp + '</small>&nbsp;</button>';
+			});
+			$controls.html(html + '</div>');
+		}
+
+		var waiting = null;
+		function done() {
+			if (waiting === 'start') { waiting = null; moveMenu(); return; }
+			if (waiting === 'turn') {
+				waiting = null;
+				$controls.html('<p class="prompt">That was turn 1, recorded with the real battle engine.</p><p class="again"><button type="button">Try another move</button></p>');
+			}
+		}
+
+		$controls.on('click', '.movebutton', function () {
+			var m = data.moves[+this.getAttribute('data-i')];
+			$controls.html('<p class="prompt">' + esc(data.lead) + ' used <strong>' + esc(m.name) + '</strong>…</p>');
+			waiting = 'turn';
+			battle.addBatch(m.log.slice());
+		});
+		$controls.on('click', '.again button', start);
+
+		Promise.all([
+			fetch('/landing/demo-battle-' + (params.get('battle') === 'sandbox' ? 'sandbox' : 'play') + '.json').then(function (r) { return r.json(); }),
+			window.MGB_READY || Promise.resolve(),
+		]).then(function (r) { data = r[0]; start(); }).catch(function (e) {
+			console.error('[MGB] demo battle', e);
+			$('.battle').html('<div class="loading">The battle didn\'t load. Reload the page to try again.</div>');
+		});
+	})();
+	</script>
+</body></html>
