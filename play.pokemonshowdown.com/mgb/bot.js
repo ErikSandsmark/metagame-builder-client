@@ -91,7 +91,9 @@
 
 	function signIn() {
 		var next = '/m/' + MGB_PLAY.slug + '/play' + (sandbox ? '?sandbox=1' : '?bot=1');
-		window.top.location.href = '/?next=' + encodeURIComponent(next);
+		// On the play page: its sign-in dialog opens over the client (decision 0106). Opened on its own: the sign-in page.
+		if (window.parent !== window) window.parent.postMessage({ mgb: 'signin', next: next }, window.location.origin);
+		else window.location.href = '/signin?next=' + encodeURIComponent(next);
 	}
 
 	/** Sandbox: the main menu's Battle button challenges the bot instead of searching for an opponent. */

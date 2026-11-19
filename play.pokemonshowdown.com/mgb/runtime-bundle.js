@@ -215,6 +215,11 @@
 				window.BattleAliases[toID(shown)] = engine;
 				for (var mod2 in Dex.moddedDexes) delete Dex.moddedDexes[mod2].cache.Moves[toID(shown)];
 			}
+			// The battle animation it plays (decision 0104): another move's entry, shared, never code from the bundle.
+			// data/graphics.js (the animation tables) loads before this file; without it, upstream falls back to Tackle.
+			delete entry.animation;
+			var anims = window.BattleMoveAnims;
+			if (anims && mv.animation && Object.prototype.hasOwnProperty.call(anims, mv.animation) && !Object.prototype.hasOwnProperty.call(anims, id)) anims[id] = anims[mv.animation];
 			engineMoves[id] = engine;
 			display[engine] = shown;
 			insertSearchIndex(id, 'move');
